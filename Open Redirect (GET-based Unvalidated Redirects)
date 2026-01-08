@@ -1,0 +1,118 @@
+Open Redirect (GET-based Unvalidated Redirects) খুঁজতে একটা সিস্টেম্যাটিক অ্যাপ্রোচ লাগবে। এই bug টা সাধারণত login/register/reset password/login with Google/Facebook এর পেইজগুলোতে পাওয়া যায়। ধাপে ধাপে দেখি:
+
+🎯 কোথায় খুঁজবে (Common Locations)
+
+1. Login pages: /login?redirect=...
+2. Register: /register?next=...
+3. OAuth callbacks: /auth/callback?redirect_uri=...
+4. Password reset: /reset-password?return=...
+5. Logout: /logout?redirect=...
+6. Profile settings: /profile?return_url=...
+7. Common parameters: redirect, redirect_uri, next, return, return_url, dest, url, target
+🔍 Step-by-Step Detection Process
+Step 1: Parameter Discovery (Burp/DevTools)
+bash
+
+
+
+# Burp Suite Repeater/Intruder দিয়ে
+GET /login?redirect=https://evil.com HTTP/1.1
+Host: target.com
+
+# সব redirect param test করো
+redirect=//
+redirect=http://evil.com
+redirect=https://evil.com
+redirect=javascript:alert(1)
+Step 2: Manual Testing Flow
+
+
+
+1. সাধারণ URL দাও → যেখানে যায় দেখো
+2. Evil domain দাও → redirect হয় কিনা চেক করো
+3. Bypass attempt করো:
+   redirect=//evil.com
+   redirect=https://evil.com#target.com/safe
+   redirect=http://evil.com@target.com/
+Step 3: Burp Suite Workflow
+
+
+
+1. Proxy → সব traffic capture করো
+2. Target → সাইট map থেকে সব login/register endpoint খুঁজো
+3. Engagement Tools → Parameter Discovery scan চালাও
+4. Repeater → প্রতিটা redirect param test করো
+Step 4: cURL দিয়ে Quick Test
+bash
+
+
+
+# Basic test
+curl -i "https://target.com/login?redirect=https://evil.com"
+
+# Bypass attempts
+curl -i "https://target.com/login?redirect=//evil.com"
+curl -i "https://target.com/login?redirect=https://evil.com%23target.com/login"
+curl -i "https://target.com/login?redirect=javascript:alert(document.domain)"
+Step 5: Advanced Bypass Techniques
+
+
+
+# URL encoding
+redirect=%68%74%74%70%3A%2F%2Fevil.com
+
+# Double encoding  
+redirect=%2568%2574%2574%70%253A%252F%252Fevil.com
+
+# Case variations
+REDIRECT=evil.com
+ReDiReCt=evil.com
+
+# IP instead of domain
+redirect=127.0.0.1.xip.io
+redirect=192.0.2.42.xip.io
+✅ Reproduction Steps (Report এর জন্য)
+
+1. Navigate to: https://target.com/login
+2. Append parameter: ?redirect=https://your-burp-collaborator.com
+3. Observe redirect to attacker controlled domain
+4. Proof: Screenshot + HAR file + Collaborator hit
+🛠️ Tools Setup
+
+
+Burp Collaborator → External payload generation
+- Domain: your-unique-id.oastify.com
+- Payload: https://your-unique-id.oastify.com
+
+Browser DevTools → Network tab (redirect chain দেখার জন্য)
+⚠️ Impact Demonstration (No Harm)
+
+🚀 Automation Script (Python)
+python
+import requests
+
+targets = [
+    "/login",
+    "/register", 
+    "/oauth/callback"
+]
+
+payloads = [
+    "https://evil.com",
+    "//evil.com",
+    "javascript:alert(1)"
+]
+
+for path in targets:
+    for payload in payloads:
+        url = f"https://target.com{path}?redirect={payload}"
+        resp = requests.get(url, allow_redirects=False, verify=False)
+        if resp.status_code in [301,302,307,308]:
+            print(f"[+] VULN: {url}")
+
+
+
+1. Burp Collaborator hit proof
+2. HAR file export (complete request/response chain)
+3. Screenshot of redirect confirmation page
+4. Phish scenario: "Attackers can phish credentials via login?redirect=evil.com"
